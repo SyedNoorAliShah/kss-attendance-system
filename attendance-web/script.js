@@ -5,6 +5,13 @@
 
 
 // =====================================================
+// 0. BACKEND URL
+// =====================================================
+
+const BACKEND_URL = "https://noorali61.pythonanywhere.com";
+
+
+// =====================================================
 // 1. FACE API MODEL LOCATION
 // =====================================================
 
@@ -313,7 +320,7 @@ async function markAttendance(name) {
     try {
 
         const response = await fetch(
-            "http://localhost:5000/attendance",
+            `${BACKEND_URL}/attendance`,
             {
                 method: "POST",
                 headers: {
@@ -955,7 +962,7 @@ async function loadTodayAttendance() {
     try {
 
         const response = await fetch(
-            `http://localhost:5000/attendance/date/${dateStr}`
+            `${BACKEND_URL}/attendance/date/${dateStr}`
         );
 
 
@@ -1045,7 +1052,7 @@ function loadHistoryByDate() {
 
 
     fetch(
-        `http://localhost:5000/attendance/date/${dateInput.value}`
+        `${BACKEND_URL}/attendance/date/${dateInput.value}`
     )
 
         .then(
