@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worker Attendance System</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+        }
+
+        header {
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+
+        video {
+            width: 100%;
+            border-radius: 10px;
+            background: #111;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px;
+            margin-top: 15px;
+            border: none;
+            border-radius: 8px;
+            background: #2563eb;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background: #f1f5f9;
+        }
+
+        .present {
+            color: green;
+            font-weight: bold;
+        }
+
+        .late {
+            color: #d97706;
+            font-weight: bold;
+        }
+
+        .absent {
+            color: red;
+            font-weight: bold;
+        }
+
+        @media (max-width: 800px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>WORKER ATTENDANCE SYSTEM</h1>
+    <p>Face Recognition Attendance</p>
+</header>
+
+<div class="container">
+
+    <div class="card">
+        <h2>📷 Camera</h2>
+
+        <video id="camera" autoplay playsinline></video>
+
+        <button onclick="startCamera()">
+            Start Camera
+        </button>
+
+        <div class="status" id="status">
+            Camera not started
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Today's Attendance</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Worker</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody id="attendanceTable">
+                <tr>
+                    <td>Ali</td>
+                    <td>08:52</td>
+                    <td class="present">🟢 Present</td>
+                </tr>
+
+                <tr>
+                    <td>Ahmed</td>
+                    <td>09:37</td>
+                    <td class="late">🟡 Late</td>
+                </tr>
+
+                <tr>
+                    <td>Usman</td>
+                    <td>--</td>
+                    <td class="absent">🔴 Absent</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+    async function startCamera() {
+
+        const video = document.getElementById("camera");
+        const status = document.getElementById("status");
+
+        try {
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true
+            });
+
+            video.srcObject = stream;
+
+            status.innerHTML = "🟢 Camera Running";
+
+        } catch (error) {
+
+            console.error(error);
+
+            status.innerHTML = "🔴 Camera access denied";
+        }
+    }
+</script>
+
+</body>
+</html>
