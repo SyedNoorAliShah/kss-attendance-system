@@ -1,18 +1,18 @@
 // =====================================================
 // WORKER ATTENDANCE SYSTEM
-// FACE RECOGNITION + ATTENDANCE DASHBOARD
+// FACE RECOGNITION + DATABASE ATTENDANCE
 // =====================================================
 
 
 // =====================================================
-// 0. BACKEND URL
+// 1. BACKEND
 // =====================================================
 
-const BACKEND_URL = "https://noorali61.pythonanywhere.com";
+const BACKEND_URL = "http://localhost:5000";
 
 
 // =====================================================
-// 1. FACE API MODEL LOCATION
+// 2. FACE API MODEL LOCATION
 // =====================================================
 
 const MODEL_URL =
@@ -20,16 +20,8 @@ const MODEL_URL =
 
 
 // =====================================================
-// 2. WORKERS
+// 3. WORKERS
 // =====================================================
-
-// We currently have 4 workers.
-//
-// Their photos:
-// workers/ali.jpg
-// workers/taqi.jpg
-// workers/alam.jpg
-// workers/moiz.jpg
 
 const workerNames = [
     "ali",
@@ -40,7 +32,7 @@ const workerNames = [
 
 
 // =====================================================
-// 3. GLOBAL VARIABLES
+// 4. GLOBAL VARIABLES
 // =====================================================
 
 let labeledDescriptors = [];
@@ -55,14 +47,88 @@ let recognitionRunning = false;
 
 let attendanceClosed = false;
 
+let systemStarted = false;
+
+let recognitionInterval = null;
+
 
 // =====================================================
-// 4. LOAD FACE API MODELS
+// 5. PAKISTAN DATE & TIME HELPERS
+// =====================================================
+
+function getPakistanDateString() {
+
+    return new Intl.DateTimeFormat(
+        "en-CA",
+        {
+            timeZone: "Asia/Karachi",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+        }
+    ).format(new Date());
+}
+
+
+function getPakistanTimeString() {
+
+    return new Intl.DateTimeFormat(
+        "en-GB",
+        {
+            timeZone: "Asia/Karachi",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false
+        }
+    ).format(new Date());
+}
+
+
+function getPakistanHourMinute() {
+
+    const parts =
+        new Intl.DateTimeFormat(
+            "en-US",
+            {
+                timeZone: "Asia/Karachi",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false
+            }
+        ).formatToParts(new Date());
+
+    let hour = 0;
+    let minute = 0;
+
+    parts.forEach(part => {
+
+        if (part.type === "hour") {
+            hour = Number(part.value);
+        }
+
+        if (part.type === "minute") {
+            minute = Number(part.value);
+        }
+
+    });
+
+    return {
+        hour: hour,
+        minute: minute
+    };
+}
+
+
+// =====================================================
+// 6. LOAD FACE API MODELS
 // =====================================================
 
 async function loadModels() {
 
-    console.log("Loading face recognition models...");
+    console.log(
+        "Loading face recognition models..."
+    );
 
     try {
 
@@ -78,9 +144,13 @@ async function loadModels() {
             MODEL_URL
         );
 
-        console.log("Models loaded successfully ✅");
+        console.log(
+            "Models loaded successfully ✅"
+        );
 
-    } catch (error) {
+    }
+
+    catch (error) {
 
         console.error(
             "Model loading error ❌",
@@ -97,12 +167,14 @@ async function loadModels() {
 
 
 // =====================================================
-// 5. REGISTER WORKERS
+// 7. REGISTER WORKERS
 // =====================================================
 
 async function registerWorkers() {
 
-    console.log("Registering workers...");
+    console.log(
+        "Registering workers..."
+    );
 
     labeledDescriptors = [];
 
@@ -155,34 +227,27 @@ async function registerWorkers() {
                 `${name} registered successfully ✅`
             );
 
+        }
 
-        } catch (error) {
+        catch (error) {
 
             console.warn(
                 `Could not load ${name}.jpg`
             );
 
-            // This is okay if a worker's photo
-            // is not available yet.
         }
     }
 
 
-    // If no worker photo exists yet
-
-    if (
-        labeledDescriptors.length === 0
-    ) {
+    if (labeledDescriptors.length === 0) {
 
         console.warn(
-            "No worker photos are available yet."
+            "No worker photos are available."
         );
 
         return;
     }
 
-
-    // Create Face Matcher
 
     faceMatcher =
         new faceapi.FaceMatcher(
@@ -201,7 +266,7 @@ async function registerWorkers() {
 
 
 // =====================================================
-// 6. START CAMERA
+// 8. START CAMERA
 // =====================================================
 
 async function startCamera() {
@@ -232,33 +297,38 @@ async function startCamera() {
             );
 
 
-        video.srcObject =
-            stream;
+        video.srcObject = stream;
 
 
-        document.getElementById(
-            "cameraMessage"
-        ).innerText =
-            "Camera is ON";
+        const message =
+            document.getElementById(
+                "cameraMessage"
+            );
+
+
+        if (message) {
+
+            message.innerText =
+                "Camera is ON";
+        }
 
 
         console.log(
             "Camera started successfully ✅"
         );
 
+    }
 
-    } catch (error) {
+    catch (error) {
 
         console.error(
             "Camera error ❌",
             error
         );
 
-
         alert(
             "Camera could not be started. Please allow camera permission."
         );
-
 
         throw error;
     }
@@ -266,30 +336,26 @@ async function startCamera() {
 
 
 // =====================================================
-// 7. GET PRESENT / LATE STATUS
+// 9. GET ATTENDANCE STATUS
+// =====================================================
+// 9:15 AM or earlier = Present
+// After 9:15 AM = Late
+// Pakistan Time is used.
 // =====================================================
 
 function getStatus() {
 
-    const now =
-        new Date();
+    const {
+        hour,
+        minute
+    } = getPakistanHourMinute();
 
-
-    const hours =
-        now.getHours();
-
-
-    const minutes =
-        now.getMinutes();
-
-
-    // Before 9:15 AM = Present
 
     if (
-        hours < 9 ||
+        hour < 9 ||
         (
-            hours === 9 &&
-            minutes <= 15
+            hour === 9 &&
+            minute <= 15
         )
     ) {
 
@@ -297,88 +363,138 @@ function getStatus() {
     }
 
 
-    // After 9:15 AM = Late
-
     return "Late";
 }
 
 
 // =====================================================
-// 8. MARK ATTENDANCE
+// 10. MARK ATTENDANCE
 // =====================================================
 
 async function markAttendance(name) {
 
     if (markedToday.has(name)) {
+
+        console.log(
+            `${name} already marked today.`
+        );
+
         return;
     }
 
-    markedToday.add(name);
 
-    const status = getStatus();
+    const status =
+        getStatus();
+
+
+    const pakistanDate =
+        getPakistanDateString();
+
+
+    const pakistanTime =
+        getPakistanTimeString();
+
+
+    console.log(
+        `Saving ${name}: ${status} at ${pakistanDate} ${pakistanTime}`
+    );
+
 
     try {
 
-        const response = await fetch(
-            `${BACKEND_URL}/attendance`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    worker_name: name,
-                    status: status
-                })
-            }
-        );
+        const response =
+            await fetch(
+                `${BACKEND_URL}/attendance`,
+                {
+                    method: "POST",
 
-        const result = await response.json();
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+
+                        worker_name: name,
+
+                        status: status,
+
+                        attendance_date:
+                            pakistanDate,
+
+                        attendance_time:
+                            pakistanTime
+                    })
+                }
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Backend returned ${response.status}`
+            );
+        }
+
+
+        const result =
+            await response.json();
+
 
         console.log(
-            result.message,
+            "Attendance saved successfully ✅",
             result
         );
 
-        // Update local record
-        // so the table/dashboard reflects it
+
+        markedToday.add(name);
+
 
         attendanceRecords[name] = {
-            status: result.status || status,
+
+            status:
+                result.status || status,
+
             time:
                 result.time ||
-                new Date().toLocaleTimeString()
+                pakistanTime
         };
 
-    } catch (error) {
+
+        updateAttendanceTable();
+
+        updateDashboard();
+
+    }
+
+    catch (error) {
 
         console.error(
-            "Backend error ❌",
+            "Attendance could not be saved ❌",
             error
         );
 
-        // Still update locally even if backend fails
 
-        attendanceRecords[name] = {
-            status: status,
-            time: new Date().toLocaleTimeString()
-        };
+        alert(
+            `Attendance for ${capitalize(name)} could not be saved to database.`
+        );
     }
-
-    updateAttendanceTable();
-    updateDashboard();
 }
 
 
 // =====================================================
-// 9. CLOSE ATTENDANCE
+// 11. CLOSE ATTENDANCE
+// =====================================================
+// Any worker not recognized becomes Absent.
+// IMPORTANT: Absent is also saved to database.
 // =====================================================
 
-function closeAttendance() {
+async function closeAttendance() {
 
-    if (
-        attendanceClosed
-    ) {
+    if (attendanceClosed) {
+
+        console.log(
+            "Attendance already closed."
+        );
 
         return;
     }
@@ -387,16 +503,81 @@ function closeAttendance() {
     attendanceClosed = true;
 
 
-    // Every worker who does not have
-    // an attendance record becomes Absent.
+    console.log(
+        "Closing attendance..."
+    );
 
-    workerNames.forEach(
-        name => {
 
-            if (
-                !attendanceRecords[name]
-            ) {
+    for (const name of workerNames) {
 
+        if (!markedToday.has(name)) {
+
+            try {
+
+                const response =
+                    await fetch(
+                        `${BACKEND_URL}/attendance`,
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+
+                            body: JSON.stringify({
+
+                                worker_name: name,
+
+                                status: "Absent",
+
+                                attendance_date:
+                                    getPakistanDateString(),
+
+                                attendance_time:
+                                    "-"
+                            })
+                        }
+                    );
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        `Backend returned ${response.status}`
+                    );
+                }
+
+
+                const result =
+                    await response.json();
+
+
+                console.log(
+                    `${name} => Absent saved ✅`,
+                    result
+                );
+
+
+                attendanceRecords[name] = {
+
+                    status: "Absent",
+
+                    time: "-"
+                };
+
+
+                markedToday.add(name);
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    `Could not save ${name} as Absent ❌`,
+                    error
+                );
+
+                // Do NOT pretend it was saved.
                 attendanceRecords[name] = {
 
                     status: "Absent",
@@ -405,7 +586,7 @@ function closeAttendance() {
                 };
             }
         }
-    );
+    }
 
 
     updateAttendanceTable();
@@ -426,6 +607,9 @@ function closeAttendance() {
     }
 
 
+    stopRecognition();
+
+
     console.log(
         "Attendance closed 🔴"
     );
@@ -433,7 +617,7 @@ function closeAttendance() {
 
 
 // =====================================================
-// 10. UPDATE ATTENDANCE TABLE
+// 12. UPDATE ATTENDANCE TABLE
 // =====================================================
 
 function updateAttendanceTable() {
@@ -464,10 +648,6 @@ function updateAttendanceTable() {
                 attendanceRecords[name];
 
 
-            // If attendance is closed
-            // and worker wasn't recognized,
-            // show Absent.
-
             let status =
                 "Not Marked";
 
@@ -483,7 +663,6 @@ function updateAttendanceTable() {
 
                 time =
                     record.time;
-
             }
 
 
@@ -523,11 +702,11 @@ function updateAttendanceTable() {
                 time;
 
 
-            // Status colors
+            // -----------------------------
+            // STATUS COLORS
+            // -----------------------------
 
-            if (
-                status === "Present"
-            ) {
+            if (status === "Present") {
 
                 statusCell.style.color =
                     "green";
@@ -536,10 +715,7 @@ function updateAttendanceTable() {
                     "bold";
             }
 
-
-            else if (
-                status === "Late"
-            ) {
+            else if (status === "Late") {
 
                 statusCell.style.color =
                     "orange";
@@ -548,10 +724,7 @@ function updateAttendanceTable() {
                     "bold";
             }
 
-
-            else if (
-                status === "Absent"
-            ) {
+            else if (status === "Absent") {
 
                 statusCell.style.color =
                     "red";
@@ -583,7 +756,7 @@ function updateAttendanceTable() {
 
 
 // =====================================================
-// 11. UPDATE DASHBOARD
+// 13. UPDATE DASHBOARD
 // =====================================================
 
 function updateDashboard() {
@@ -619,7 +792,6 @@ function updateDashboard() {
                 present++;
             }
 
-
             else if (
                 record.status === "Late"
             ) {
@@ -627,19 +799,15 @@ function updateDashboard() {
                 late++;
             }
 
-
             else if (
                 record.status === "Absent"
             ) {
 
                 absent++;
             }
-
         }
     );
 
-
-    // Update Total
 
     const totalElement =
         document.getElementById(
@@ -654,8 +822,6 @@ function updateDashboard() {
     }
 
 
-    // Update Present
-
     const presentElement =
         document.getElementById(
             "presentWorkers"
@@ -669,8 +835,6 @@ function updateDashboard() {
     }
 
 
-    // Update Late
-
     const lateElement =
         document.getElementById(
             "lateWorkers"
@@ -683,8 +847,6 @@ function updateDashboard() {
             late;
     }
 
-
-    // Update Absent
 
     const absentElement =
         document.getElementById(
@@ -701,14 +863,16 @@ function updateDashboard() {
 
 
 // =====================================================
-// 12. FACE RECOGNITION
+// 14. FACE RECOGNITION
 // =====================================================
 
 function recognizeLoop() {
 
-    if (
-        recognitionRunning
-    ) {
+    if (recognitionRunning) {
+
+        console.log(
+            "Face recognition is already running."
+        );
 
         return;
     }
@@ -723,89 +887,142 @@ function recognizeLoop() {
         );
 
 
+    if (!video) {
+
+        console.error(
+            "Camera not found ❌"
+        );
+
+        return;
+    }
+
+
     console.log(
         "Face recognition started ✅"
     );
 
 
-    setInterval(
-        async () => {
+    recognitionInterval =
+        setInterval(
+            async () => {
 
-            if (
-                !faceMatcher
-            ) {
-
-                return;
-            }
-
-
-            if (
-                video.readyState < 2
-            ) {
-
-                return;
-            }
-
-
-            try {
-
-                const detection =
-                    await faceapi
-                        .detectSingleFace(
-                            video,
-                            new faceapi.TinyFaceDetectorOptions()
-                        )
-                        .withFaceLandmarks()
-                        .withFaceDescriptor();
-
-
-                if (!detection) {
+                if (
+                    !faceMatcher
+                ) {
 
                     return;
                 }
 
 
-                const match =
-                    faceMatcher.findBestMatch(
-                        detection.descriptor
-                    );
-
-
-                // Recognized worker
-
                 if (
-                    match.label !== "unknown"
+                    attendanceClosed
                 ) {
 
-                    if (
-                        !markedToday.has(
-                            match.label
-                        )
-                    ) {
-
-                        markAttendance(
-                            match.label
-                        );
-                    }
+                    return;
                 }
 
 
-            } catch (error) {
+                if (
+                    video.readyState < 2
+                ) {
 
-                console.error(
-                    "Face recognition error ❌",
-                    error
-                );
-            }
+                    return;
+                }
 
-        },
-        2000
+
+                try {
+
+                    const detection =
+                        await faceapi
+                            .detectSingleFace(
+                                video,
+                                new faceapi.TinyFaceDetectorOptions()
+                            )
+                            .withFaceLandmarks()
+                            .withFaceDescriptor();
+
+
+                    if (!detection) {
+
+                        return;
+                    }
+
+
+                    const match =
+                        faceMatcher.findBestMatch(
+                            detection.descriptor
+                        );
+
+
+                    console.log(
+                        "Detected:",
+                        match.label,
+                        "Distance:",
+                        match.distance
+                    );
+
+
+                    if (
+                        match.label !== "unknown"
+                    ) {
+
+                        if (
+                            !markedToday.has(
+                                match.label
+                            )
+                        ) {
+
+                            await markAttendance(
+                                match.label
+                            );
+                        }
+                    }
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Face recognition error ❌",
+                        error
+                    );
+                }
+
+            },
+            2000
+        );
+}
+
+
+// =====================================================
+// 15. STOP FACE RECOGNITION
+// =====================================================
+
+function stopRecognition() {
+
+    if (recognitionInterval) {
+
+        clearInterval(
+            recognitionInterval
+        );
+
+        recognitionInterval =
+            null;
+    }
+
+
+    recognitionRunning =
+        false;
+
+
+    console.log(
+        "Face recognition stopped."
     );
 }
 
 
 // =====================================================
-// 13. CAPITALIZE NAME
+// 16. CAPITALIZE NAME
 // =====================================================
 
 function capitalize(name) {
@@ -824,150 +1041,44 @@ function capitalize(name) {
 
 
 // =====================================================
-// 14. START CAMERA BUTTON
-// =====================================================
-
-let systemStarted = false;
-
-const startButton =
-    document.getElementById(
-        "startCamera"
-    );
-
-
-if (startButton) {
-
-    startButton.addEventListener(
-        "click",
-        async () => {
-
-            // Prevent multiple clicks from restarting everything
-            if (systemStarted) {
-                console.log("System already running, ignoring click.");
-                return;
-            }
-
-            systemStarted = true;
-
-            startButton.disabled = true;
-            startButton.innerText = "Camera Running...";
-
-            try {
-
-                console.log(
-                    "Starting Worker Attendance System..."
-                );
-
-
-                await loadModels();
-
-
-                await registerWorkers();
-
-
-                await startCamera();
-
-
-                recognizeLoop();
-
-
-                console.log(
-                    "Worker Attendance System is running ✅"
-                );
-
-                startButton.innerText = "Camera Running ✅";
-
-            } catch (error) {
-
-                console.error(
-                    "System startup error ❌",
-                    error
-                );
-
-                // Allow retry if something failed
-                systemStarted = false;
-                startButton.disabled = false;
-                startButton.innerText = "Start Camera";
-            }
-        }
-    );
-}
-
-// =====================================================
-// 15. CREATE CLOSE ATTENDANCE BUTTON
-// =====================================================
-
-// We create the button automatically.
-// So you don't have to edit index.html manually.
-
-const cameraSection =
-    document.querySelector(
-        ".camera-section"
-    );
-
-
-if (cameraSection) {
-
-    const closeButton =
-        document.createElement(
-            "button"
-        );
-
-
-    closeButton.id =
-        "closeAttendance";
-
-
-    closeButton.innerText =
-        "Close Attendance";
-
-
-    closeButton.style.marginTop =
-        "10px";
-
-
-    closeButton.style.padding =
-        "10px 20px";
-
-
-    closeButton.style.cursor =
-        "pointer";
-
-
-    closeButton.addEventListener(
-        "click",
-        closeAttendance
-    );
-
-
-    cameraSection
-        .querySelector(".camera-box")
-        .appendChild(
-            closeButton
-        );
-}
-
-
-// =====================================================
-// 15.5 LOAD TODAY'S ATTENDANCE FROM BACKEND
+// 17. LOAD TODAY'S ATTENDANCE FROM DATABASE
 // =====================================================
 
 async function loadTodayAttendance() {
 
-    const today = new Date();
+    const today =
+        getPakistanDateString();
 
-    const dateStr =
-        today.toISOString().split("T")[0];
+
+    console.log(
+        "Loading attendance for Pakistan date:",
+        today
+    );
+
 
     try {
 
-        const response = await fetch(
-            `${BACKEND_URL}/attendance/date/${dateStr}`
-        );
+        const response =
+            await fetch(
+                `${BACKEND_URL}/attendance/date/${today}`
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Backend returned ${response.status}`
+            );
+        }
 
 
         const records =
             await response.json();
+
+
+        attendanceRecords = {};
+
+        markedToday = new Set();
 
 
         records.forEach(
@@ -987,7 +1098,9 @@ async function loadTodayAttendance() {
                 };
 
 
-                markedToday.add(name);
+                markedToday.add(
+                    name
+                );
             }
         );
 
@@ -998,39 +1111,38 @@ async function loadTodayAttendance() {
         );
 
 
-    } catch (error) {
+        updateAttendanceTable();
+
+        updateDashboard();
+
+    }
+
+    catch (error) {
 
         console.error(
             "Could not load today's attendance ❌",
             error
         );
+
+
+        updateAttendanceTable();
+
+        updateDashboard();
     }
-
-
-    updateAttendanceTable();
-
-    updateDashboard();
 }
 
 
 // =====================================================
-// 16. INITIAL PAGE
+// 18. LOAD ATTENDANCE HISTORY
 // =====================================================
 
-updateAttendanceTable();
-updateDashboard();
-
-
-// =====================================================
-// 17. LOAD ATTENDANCE HISTORY (BY DATE)
-// =====================================================
-
-function loadHistoryByDate() {
+async function loadHistoryByDate() {
 
     const dateInput =
         document.getElementById(
             "historyDate"
         );
+
 
     const historyTable =
         document.getElementById(
@@ -1051,118 +1163,345 @@ function loadHistoryByDate() {
     }
 
 
-    fetch(
-        `${BACKEND_URL}/attendance/date/${dateInput.value}`
-    )
+    if (!historyTable) {
 
-        .then(
-            response =>
-                response.json()
-        )
+        console.error(
+            "History table not found ❌"
+        );
 
-        .then(
-            records => {
+        return;
+    }
 
-                historyTable.innerHTML = "";
 
+    const selectedDate =
+        dateInput.value;
+
+
+    console.log(
+        "Loading history for:",
+        selectedDate
+    );
+
+
+    historyTable.innerHTML =
+        "<tr><td colspan='3'>Loading...</td></tr>";
+
+
+    try {
+
+        const response =
+            await fetch(
+                `${BACKEND_URL}/attendance/date/${selectedDate}`
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Backend returned ${response.status}`
+            );
+        }
+
+
+        const records =
+            await response.json();
+
+
+        historyTable.innerHTML = "";
+
+
+        if (
+            records.length === 0
+        ) {
+
+            historyTable.innerHTML =
+                "<tr><td colspan='3'>No records found for this date.</td></tr>";
+
+            return;
+        }
+
+
+        records.forEach(
+            record => {
+
+                const row =
+                    document.createElement(
+                        "tr"
+                    );
+
+
+                const nameCell =
+                    document.createElement(
+                        "td"
+                    );
+
+
+                nameCell.innerText =
+                    capitalize(
+                        record.worker_name
+                    );
+
+
+                const statusCell =
+                    document.createElement(
+                        "td"
+                    );
+
+
+                statusCell.innerText =
+                    record.status;
+
+
+                const timeCell =
+                    document.createElement(
+                        "td"
+                    );
+
+
+                timeCell.innerText =
+                    record.attendance_time;
+
+
+                // -----------------------------
+                // HISTORY STATUS COLORS
+                // -----------------------------
 
                 if (
-                    records.length === 0
+                    record.status ===
+                    "Present"
                 ) {
 
-                    historyTable.innerHTML =
-                        "<tr><td colspan='3'>No records found for this date.</td></tr>";
+                    statusCell.style.color =
+                        "green";
 
-                    return;
+                    statusCell.style.fontWeight =
+                        "bold";
+                }
+
+                else if (
+                    record.status ===
+                    "Late"
+                ) {
+
+                    statusCell.style.color =
+                        "orange";
+
+                    statusCell.style.fontWeight =
+                        "bold";
+                }
+
+                else if (
+                    record.status ===
+                    "Absent"
+                ) {
+
+                    statusCell.style.color =
+                        "red";
+
+                    statusCell.style.fontWeight =
+                        "bold";
                 }
 
 
-                records.forEach(
-                    record => {
-
-                        const row =
-                            document.createElement(
-                                "tr"
-                            );
-
-
-                        const nameCell =
-                            document.createElement(
-                                "td"
-                            );
-
-
-                        nameCell.innerText =
-                            capitalize(
-                                record.worker_name
-                            );
-
-
-                        const statusCell =
-                            document.createElement(
-                                "td"
-                            );
-
-
-                        statusCell.innerText =
-                            record.status;
-
-
-                        const timeCell =
-                            document.createElement(
-                                "td"
-                            );
-
-
-                        timeCell.innerText =
-                            record.attendance_time;
-
-
-                        row.appendChild(
-                            nameCell
-                        );
-
-
-                        row.appendChild(
-                            statusCell
-                        );
-
-
-                        row.appendChild(
-                            timeCell
-                        );
-
-
-                        historyTable.appendChild(
-                            row
-                        );
-                    }
+                row.appendChild(
+                    nameCell
                 );
 
-            }
-        )
+                row.appendChild(
+                    statusCell
+                );
 
-        .catch(
-            error => {
+                row.appendChild(
+                    timeCell
+                );
+
+
+                historyTable.appendChild(
+                    row
+                );
+            }
+        );
+
+
+        console.log(
+            "History loaded successfully ✅",
+            records
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Could not load history ❌",
+            error
+        );
+
+
+        historyTable.innerHTML =
+            "<tr><td colspan='3'>Error loading history. Is the backend running?</td></tr>";
+    }
+}
+
+
+// =====================================================
+// 19. START CAMERA BUTTON
+// =====================================================
+
+const startButton =
+    document.getElementById(
+        "startCamera"
+    );
+
+
+if (startButton) {
+
+    startButton.addEventListener(
+        "click",
+        async () => {
+
+            if (systemStarted) {
+
+                console.log(
+                    "System already running."
+                );
+
+                return;
+            }
+
+
+            systemStarted =
+                true;
+
+
+            startButton.disabled =
+                true;
+
+
+            startButton.innerText =
+                "Starting...";
+
+
+            try {
+
+                console.log(
+                    "Starting Worker Attendance System..."
+                );
+
+
+                // Load today's database records first
+                await loadTodayAttendance();
+
+
+                // Load face models
+                await loadModels();
+
+
+                // Register worker photos
+                await registerWorkers();
+
+
+                // Start camera
+                await startCamera();
+
+
+                // Start recognition
+                recognizeLoop();
+
+
+                console.log(
+                    "Worker Attendance System is running ✅"
+                );
+
+
+                startButton.innerText =
+                    "Camera Running ✅";
+
+            }
+
+            catch (error) {
 
                 console.error(
-                    "Could not load history ❌",
+                    "System startup error ❌",
                     error
                 );
 
 
-                historyTable.innerHTML =
-                    "<tr><td colspan='3'>Error loading history. Is the backend running?</td></tr>";
+                systemStarted =
+                    false;
+
+
+                startButton.disabled =
+                    false;
+
+
+                startButton.innerText =
+                    "Start Camera";
             }
-        );
+        }
+    );
 }
 
 
-document
-    .getElementById(
+// =====================================================
+// 20. CLOSE ATTENDANCE BUTTON
+// =====================================================
+
+const closeButton =
+    document.getElementById(
+        "closeAttendance"
+    );
+
+
+if (closeButton) {
+
+    closeButton.addEventListener(
+        "click",
+        async () => {
+
+            await closeAttendance();
+
+        }
+    );
+}
+
+
+// =====================================================
+// 21. HISTORY BUTTON
+// =====================================================
+
+const historyButton =
+    document.getElementById(
         "loadHistory"
-    )
-    .addEventListener(
+    );
+
+
+if (historyButton) {
+
+    historyButton.addEventListener(
         "click",
         loadHistoryByDate
     );
+
+}
+
+
+// =====================================================
+// 22. INITIAL PAGE
+// =====================================================
+
+updateAttendanceTable();
+
+updateDashboard();
+
+
+// =====================================================
+// 23. LOAD TODAY'S DATA WHEN PAGE OPENS
+// =====================================================
+
+loadTodayAttendance();
+
+
+console.log(
+    "Worker Attendance System JavaScript loaded ✅"
+);
