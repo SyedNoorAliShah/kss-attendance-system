@@ -1,110 +1,304 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KSS Engineering Attendance System</title>
 
-    <link rel="stylesheet" href="style.css">
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        KSS Engineering Attendance System
+    </title>
+
+    <link
+        rel="stylesheet"
+        href="style.css"
+    >
+
 </head>
+
 
 <body>
 
     <div class="container">
 
+
+        <!-- =========================================
+             HEADER
+        ========================================== -->
+
         <header>
-            <h1>KSS Engineering Attendance System</h1>
-            <p>Face Recognition Based Attendance</p>
+
+            <h1>
+                KSS Engineering Attendance System
+            </h1>
+
+            <p>
+                Face Recognition Based Attendance
+            </p>
+
         </header>
+
+
+
+        <!-- =========================================
+             DASHBOARD
+        ========================================== -->
 
         <section class="dashboard">
 
+
+            <!-- TOTAL WORKERS -->
+
             <div class="card">
-                <h2>Total Workers</h2>
-                <p id="totalWorkers">0</p>
+
+                <h2>
+                    Total Workers
+                </h2>
+
+                <p id="totalWorkers">
+                    0
+                </p>
+
             </div>
+
+
+
+            <!-- PRESENT -->
 
             <div class="card present">
-                <h2>Present</h2>
-                <p id="presentWorkers">0</p>
+
+                <h2>
+                    Present
+                </h2>
+
+                <p id="presentWorkers">
+                    0
+                </p>
+
             </div>
+
+
+
+            <!-- LATE -->
 
             <div class="card late">
-                <h2>Late</h2>
-                <p id="lateWorkers">0</p>
+
+                <h2>
+                    Late
+                </h2>
+
+                <p id="lateWorkers">
+                    0
+                </p>
+
             </div>
+
+
+
+            <!-- ABSENT -->
 
             <div class="card absent">
-                <h2>Absent</h2>
-                <p id="absentWorkers">0</p>
+
+                <h2>
+                    Absent
+                </h2>
+
+                <p id="absentWorkers">
+                    0
+                </p>
+
             </div>
 
+
         </section>
+
+
+
+        <!-- =========================================
+             WORKER ATTENDANCE
+        ========================================== -->
 
         <section class="attendance-section">
 
-            <h2>Worker Attendance</h2>
+            <h2>
+                Worker Attendance
+            </h2>
+
 
             <table>
+
                 <thead>
+
                     <tr>
-                        <th>Worker Name</th>
-                        <th>Status</th>
-                        <th>Time</th>
+
+                        <th>
+                            Worker Name
+                        </th>
+
+                        <th>
+                            Status
+                        </th>
+
+                        <th>
+                            Time
+                        </th>
+
                     </tr>
+
                 </thead>
 
+
                 <tbody id="attendanceTable">
-                    <!-- Workers will appear here -->
+
+                    <!--
+                        Workers are automatically
+                        displayed by script.js
+                    -->
+
                 </tbody>
+
             </table>
 
         </section>
+
+
+
+        <!-- =========================================
+             CAMERA / FACE RECOGNITION
+        ========================================== -->
 
         <section class="camera-section">
 
-            <h2>Face Recognition</h2>
+            <h2>
+                Face Recognition
+            </h2>
+
 
             <div class="camera-box">
 
-    <video id="camera" autoplay playsinline></video>
 
-    <p id="cameraMessage">Camera is currently off</p>
+                <video
+                    id="camera"
+                    autoplay
+                    playsinline
+                ></video>
 
-    <button id="startCamera">Start Camera</button>
 
-</div>
+                <p id="cameraMessage">
+                    Camera is currently off
+                </p>
+
+
+                <button id="startCamera">
+                    Start Camera
+                </button>
+
+
+                <button id="closeAttendance">
+                    Close Attendance
+                </button>
+
+
+            </div>
 
         </section>
 
+
+
+        <!-- =========================================
+             ATTENDANCE HISTORY
+        ========================================== -->
+
         <section class="history-section">
 
-            <h2>Attendance History</h2>
+            <h2>
+                Attendance History
+            </h2>
 
-            <label for="historyDate">Select Date: </label>
-            <input type="date" id="historyDate">
-            <button id="loadHistory">View</button>
+
+            <div class="history-controls">
+
+                <label for="historyDate">
+                    Select Date:
+                </label>
+
+
+                <input
+                    type="date"
+                    id="historyDate"
+                >
+
+
+                <button id="loadHistory">
+                    View
+                </button>
+
+            </div>
+
+
 
             <table>
+
                 <thead>
+
                     <tr>
-                        <th>Worker Name</th>
-                        <th>Status</th>
-                        <th>Time</th>
+
+                        <th>
+                            Worker Name
+                        </th>
+
+                        <th>
+                            Status
+                        </th>
+
+                        <th>
+                            Time
+                        </th>
+
                     </tr>
+
                 </thead>
 
+
                 <tbody id="historyTable">
-                    <!-- History records will appear here -->
+
+                    <!--
+                        Selected date attendance
+                        will appear here
+                    -->
+
                 </tbody>
+
             </table>
 
         </section>
 
+
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
-<script src="script.js"></script>
+
+
+    <!-- =========================================
+         FACE API
+    ========================================== -->
+
+    <script
+        src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"
+    ></script>
+
+
+    <!-- =========================================
+         OUR JAVASCRIPT
+    ========================================== -->
+
+    <script src="script.js"></script>
+
 
 </body>
+
 </html>
