@@ -1,8 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+
 import sqlite3
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from pathlib import Path
 
 
@@ -11,18 +14,35 @@ from pathlib import Path
 # =====================================================
 
 app = Flask(__name__)
+
 CORS(app)
+
+
+# =====================================================
+# WORKERS
+# =====================================================
+
+WORKERS = [
+    "ali",
+    "taqi",
+    "alam",
+    "zaman"
+]
 
 
 # =====================================================
 # DATABASE
 # =====================================================
 
-# Always use the database next to server.py.
-# This prevents accidentally creating two attendance.db
-# files when Flask is started from different folders.
+# IMPORTANT:
+# Always use the database located next to server.py.
+#
+# This prevents multiple attendance.db files from
+# being created when the server is started from
+# different folders.
 
 BASE_DIR = Path(__file__).resolve().parent
+
 DATABASE = BASE_DIR / "attendance.db"
 
 
@@ -35,8 +55,9 @@ PAKISTAN_TZ = ZoneInfo("Asia/Karachi")
 
 def pakistan_now():
     """
-    Returns current Pakistan Standard Time.
+    Return current Pakistan Standard Time.
     """
+
     return datetime.now(PAKISTAN_TZ)
 
 
@@ -46,7 +67,10 @@ def pakistan_now():
 
 def get_db():
 
-    conn = sqlite3.connect(str(DATABASE))
+    conn = sqlite3.connect(
+        str(DATABASE),
+        timeout=10
+    )
 
     conn.row_factory = sqlite3.Row
 
@@ -61,36 +85,203 @@ def init_db():
 
     conn = get_db()
 
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
+    try:
 
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS attendance (
 
-            worker_name TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-            status TEXT NOT NULL,
+                worker_name TEXT NOT NULL,
 
-            attendance_date TEXT NOT NULL,
+                status TEXT NOT NULL,
 
-            attendance_time TEXT NOT NULL
+                attendance_date TEXT NOT NULL,
+
+                attendance_time TEXT NOT NULL
+            )
+        """)
+
+
+        # -------------------------------------------------
+        # Prevent duplicate attendance for the same
+        # worker on the same date.
+        # -------------------------------------------------
+
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+            unique_worker_date
+
+            ON attendance(
+                worker_name,
+                attendance_date
+            )
+        """)
+
+
+        conn.commit()
+
+
+        print(
+            "Database initialized successfully ✅"
         )
-    """)
 
-    # Prevent duplicate attendance for one worker
-    # on the same date.
+        print(
+            f"Database location: {DATABASE}"
+        )
 
-    conn.execute("""
-        CREATE UNIQUE INDEX IF NOT EXISTS
-        unique_worker_date
-        ON attendance(worker_name, attendance_date)
-    """)
 
-    conn.commit()
+    finally:
 
-    conn.close()
+        conn.close()
 
-    print("Database initialized successfully ✅")
-    print(f"Database location: {DATABASE}")
+
+# =====================================================
+# RENAME OLD MOIZ RECORDS TO ZAMAN
+# =====================================================
+
+def rename_moiz_to_zaman():
+
+    conn = get_db()
+
+    try:
+
+        # -------------------------------------------------
+        # Check whether old Moiz records exist.
+        # -------------------------------------------------
+
+        old_records = conn.execute("""
+            SELECT COUNT(*) AS total
+            FROM attendance
+            WHERE LOWER(worker_name) = 'moiz'
+        """).fetchone()
+
+
+        if old_records["total"] == 0:
+
+            print(
+                "No old Moiz records found."
+            )
+
+            return
+
+
+        # -------------------------------------------------
+        # Check for possible date conflicts.
+        #
+        # Example:
+        # Moiz has attendance on 24 Aug
+        # Zaman already has attendance on 24 Aug
+        #
+        # We don't want to violate the unique index.
+        # -------------------------------------------------
+
+        conflict_count = conn.execute("""
+            SELECT COUNT(*)
+            FROM attendance AS moiz
+            INNER JOIN attendance AS zaman
+
+                ON moiz.attendance_date =
+                   zaman.attendance_date
+
+            WHERE LOWER(moiz.worker_name) = 'moiz'
+
+            AND LOWER(zaman.worker_name) = 'zaman'
+        """).fetchone()[0]
+
+
+        if conflict_count > 0:
+
+            print(
+                "⚠️ Moiz → Zaman rename skipped "
+                "for conflicting dates."
+            )
+
+            print(
+                f"Conflicting dates: {conflict_count}"
+            )
+
+            # Remove only duplicate Moiz records
+            # where Zaman already has a record.
+            #
+            # This preserves the existing Zaman record.
+
+            conn.execute("""
+                DELETE FROM attendance
+
+                WHERE LOWER(worker_name) = 'moiz'
+
+                AND attendance_date IN (
+
+                    SELECT moiz.attendance_date
+
+                    FROM attendance AS moiz
+
+                    INNER JOIN attendance AS zaman
+
+                        ON moiz.attendance_date =
+                           zaman.attendance_date
+
+                    WHERE LOWER(moiz.worker_name) = 'moiz'
+
+                    AND LOWER(zaman.worker_name) = 'zaman'
+                )
+            """)
+
+
+        # -------------------------------------------------
+        # Rename remaining Moiz records.
+        # -------------------------------------------------
+
+        updated = conn.execute("""
+            UPDATE attendance
+
+            SET worker_name = 'zaman'
+
+            WHERE LOWER(worker_name) = 'moiz'
+        """)
+
+
+        conn.commit()
+
+
+        print(
+            f"Moiz → Zaman completed ✅ "
+            f"({updated.rowcount} records updated)"
+        )
+
+
+    finally:
+
+        conn.close()
+
+
+# =====================================================
+# CALCULATE ATTENDANCE STATUS
+# =====================================================
+
+def calculate_status(now):
+
+    current_minutes = (
+        now.hour * 60
+        + now.minute
+    )
+
+
+    # 9:15 AM cutoff
+
+    cutoff_minutes = (
+        9 * 60
+        + 15
+    )
+
+
+    if current_minutes <= cutoff_minutes:
+
+        return "Present"
+
+
+    return "Late"
 
 
 # =====================================================
@@ -111,8 +302,28 @@ def home():
         "timezone":
             "Asia/Karachi",
 
+        "workers":
+            WORKERS,
+
         "database":
             str(DATABASE)
+    })
+
+
+# =====================================================
+# GET WORKERS
+# =====================================================
+
+@app.route(
+    "/workers",
+    methods=["GET"]
+)
+def get_workers():
+
+    return jsonify({
+
+        "workers":
+            WORKERS
     })
 
 
@@ -120,68 +331,110 @@ def home():
 # MARK ATTENDANCE
 # =====================================================
 
-@app.route("/attendance", methods=["POST"])
+@app.route(
+    "/attendance",
+    methods=["POST"]
+)
 def mark_attendance():
 
     data = request.get_json()
 
+
     if not data:
 
         return jsonify({
-            "error": "No data received"
+
+            "error":
+                "No data received"
+
         }), 400
 
 
-    worker_name = data.get("worker_name")
+    worker_name = data.get(
+        "worker_name"
+    )
 
-    requested_status = data.get("status")
+
+    requested_status = data.get(
+        "status"
+    )
 
 
     if not worker_name:
 
         return jsonify({
+
             "error":
                 "worker_name is required"
+
         }), 400
 
 
     # -------------------------------------------------
-    # SERVER CONTROLS THE DATE AND TIME
+    # Normalize worker name
     # -------------------------------------------------
 
-    # Pakistan Standard Time 🇵🇰
-now = datetime.now(ZoneInfo("Asia/Karachi"))
+    worker_name = (
+        str(worker_name)
+        .strip()
+        .lower()
+    )
 
-attendance_date = now.strftime("%Y-%m-%d")
-attendance_time = now.strftime("%I:%M:%S %p")
+
+    # -------------------------------------------------
+    # Moiz is permanently replaced by Zaman.
+    # -------------------------------------------------
+
+    if worker_name == "moiz":
+
+        worker_name = "zaman"
+
+
+    # -------------------------------------------------
+    # Check worker
+    # -------------------------------------------------
+
+    if worker_name not in WORKERS:
+
+        return jsonify({
+
+            "error":
+                f"Unknown worker: {worker_name}",
+
+            "allowed_workers":
+                WORKERS
+
+        }), 400
+
+
+    # -------------------------------------------------
+    # SERVER CONTROLS DATE/TIME
+    # -------------------------------------------------
+
+    now = pakistan_now()
+
+
+    attendance_date = (
+        now.strftime("%Y-%m-%d")
+    )
+
+
+    attendance_time = (
+        now.strftime("%I:%M:%S %p")
+    )
 
 
     # -------------------------------------------------
     # SERVER CONTROLS PRESENT / LATE
     # -------------------------------------------------
 
-    current_minutes = (
-        now.hour * 60 +
-        now.minute
+    status = calculate_status(
+        now
     )
-
-    cutoff_minutes = (
-        9 * 60 +
-        15
-    )
-
-
-    if current_minutes <= cutoff_minutes:
-
-        status = "Present"
-
-    else:
-
-        status = "Late"
 
 
     # -------------------------------------------------
-    # IF FRONTEND IS SAVING ABSENT
+    # ABSENT SUPPORT
     # -------------------------------------------------
 
     if requested_status == "Absent":
@@ -198,138 +451,228 @@ attendance_time = now.strftime("%I:%M:%S %p")
     conn = get_db()
 
 
-    existing = conn.execute("""
-        SELECT
-            id,
+    try:
+
+        existing = conn.execute("""
+            SELECT
+
+                id,
+
+                worker_name,
+
+                status,
+
+                attendance_date,
+
+                attendance_time
+
+            FROM attendance
+
+            WHERE LOWER(worker_name) = ?
+
+            AND attendance_date = ?
+        """, (
+
             worker_name,
+
+            attendance_date
+
+        )).fetchone()
+
+
+        # -------------------------------------------------
+        # Already marked
+        # -------------------------------------------------
+
+        if existing:
+
+            return jsonify({
+
+                "message":
+                    "Attendance already marked for today",
+
+                "worker_name":
+                    existing["worker_name"],
+
+                "status":
+                    existing["status"],
+
+                "date":
+                    existing["attendance_date"],
+
+                "time":
+                    existing["attendance_time"]
+            })
+
+
+        # -------------------------------------------------
+        # INSERT
+        # -------------------------------------------------
+
+        conn.execute("""
+            INSERT INTO attendance
+            (
+                worker_name,
+                status,
+                attendance_date,
+                attendance_time
+            )
+
+            VALUES (?, ?, ?, ?)
+        """, (
+
+            worker_name,
+
             status,
+
             attendance_date,
+
             attendance_time
 
-        FROM attendance
-
-        WHERE worker_name = ?
-
-        AND attendance_date = ?
-    """, (
-        worker_name,
-        attendance_date
-    )).fetchone()
+        ))
 
 
-    if existing:
+        conn.commit()
 
-        conn.close()
+
+        print(
+            f"{worker_name} => "
+            f"{status} at "
+            f"{attendance_date} "
+            f"{attendance_time} PKT"
+        )
+
 
         return jsonify({
 
             "message":
-                "Attendance already marked for today",
+                "Attendance saved successfully ✅",
 
             "worker_name":
-                existing["worker_name"],
+                worker_name,
 
             "status":
-                existing["status"],
+                status,
 
             "date":
-                existing["attendance_date"],
+                attendance_date,
 
             "time":
-                existing["attendance_time"]
+                attendance_time
         })
 
 
-    # -------------------------------------------------
-    # INSERT ATTENDANCE
-    # -------------------------------------------------
+    except sqlite3.IntegrityError:
 
-    conn.execute("""
-        INSERT INTO attendance
-        (
-            worker_name,
-            status,
-            attendance_date,
-            attendance_time
-        )
+        # -------------------------------------------------
+        # Safety net for duplicate records.
+        # -------------------------------------------------
 
-        VALUES (?, ?, ?, ?)
-    """, (
-        worker_name,
-        status,
-        attendance_date,
-        attendance_time
-    ))
+        existing = conn.execute("""
+            SELECT
 
+                worker_name,
+                status,
+                attendance_date,
+                attendance_time
 
-    conn.commit()
+            FROM attendance
 
-    conn.close()
+            WHERE LOWER(worker_name) = ?
 
+            AND attendance_date = ?
+        """, (
 
-    print(
-        f"{worker_name} => {status} "
-        f"at {attendance_date} {attendance_time} PKT"
-    )
-
-
-    return jsonify({
-
-        "message":
-            "Attendance saved successfully ✅",
-
-        "worker_name":
             worker_name,
 
-        "status":
-            status,
+            attendance_date
 
-        "date":
-            attendance_date,
+        )).fetchone()
 
-        "time":
-            attendance_time
-    })
+
+        if existing:
+
+            return jsonify({
+
+                "message":
+                    "Attendance already marked for today",
+
+                "worker_name":
+                    existing["worker_name"],
+
+                "status":
+                    existing["status"],
+
+                "date":
+                    existing["attendance_date"],
+
+                "time":
+                    existing["attendance_time"]
+            })
+
+
+        return jsonify({
+
+            "error":
+                "Could not save attendance."
+
+        }), 500
+
+
+    finally:
+
+        conn.close()
 
 
 # =====================================================
 # GET ALL ATTENDANCE
 # =====================================================
 
-@app.route("/attendance", methods=["GET"])
+@app.route(
+    "/attendance",
+    methods=["GET"]
+)
 def get_attendance():
 
     conn = get_db()
 
+    try:
 
-    rows = conn.execute("""
-        SELECT
+        rows = conn.execute("""
+            SELECT
 
-            id,
+                id,
 
-            worker_name,
+                worker_name,
 
-            status,
+                status,
 
-            attendance_date,
+                attendance_date,
 
-            attendance_time
+                attendance_time
 
-        FROM attendance
+            FROM attendance
 
-        ORDER BY
-            attendance_date DESC,
-            attendance_time DESC
-    """).fetchall()
+            ORDER BY
+
+                attendance_date DESC,
+
+                attendance_time DESC
+        """).fetchall()
 
 
-    conn.close()
+        return jsonify([
+
+            dict(row)
+
+            for row in rows
+
+        ])
 
 
-    return jsonify([
-        dict(row)
-        for row in rows
-    ])
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -340,43 +683,69 @@ def get_attendance():
     "/attendance/worker/<worker_name>",
     methods=["GET"]
 )
-def get_worker_attendance(worker_name):
+def get_worker_attendance(
+    worker_name
+):
+
+    worker_name = (
+        worker_name
+        .strip()
+        .lower()
+    )
+
+
+    # Moiz → Zaman
+
+    if worker_name == "moiz":
+
+        worker_name = "zaman"
+
 
     conn = get_db()
 
+    try:
 
-    rows = conn.execute("""
-        SELECT
+        rows = conn.execute("""
+            SELECT
 
-            id,
+                id,
+
+                worker_name,
+
+                status,
+
+                attendance_date,
+
+                attendance_time
+
+            FROM attendance
+
+            WHERE LOWER(worker_name) = ?
+
+            ORDER BY
+
+                attendance_date DESC,
+
+                attendance_time DESC
+        """, (
 
             worker_name,
 
-            status,
-
-            attendance_date,
-
-            attendance_time
-
-        FROM attendance
-
-        WHERE worker_name = ?
-
-        ORDER BY
-            attendance_date DESC,
-            attendance_time DESC
-    """, (
-        worker_name,
-    )).fetchall()
+        )).fetchall()
 
 
-    conn.close()
+        return jsonify([
+
+            dict(row)
+
+            for row in rows
+
+        ])
 
 
-    return jsonify([
-        dict(row)
-        for row in rows
-    ])
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -387,49 +756,68 @@ def get_worker_attendance(worker_name):
     "/attendance/date/<attendance_date>",
     methods=["GET"]
 )
-def get_date_attendance(attendance_date):
+def get_date_attendance(
+    attendance_date
+):
 
     conn = get_db()
 
+    try:
 
-    rows = conn.execute("""
-        SELECT
+        rows = conn.execute("""
+            SELECT
 
-            id,
+                id,
 
-            worker_name,
+                worker_name,
 
-            status,
+                status,
+
+                attendance_date,
+
+                attendance_time
+
+            FROM attendance
+
+            WHERE attendance_date = ?
+
+            ORDER BY
+
+                CASE status
+
+                    WHEN 'Present'
+                    THEN 1
+
+                    WHEN 'Late'
+                    THEN 2
+
+                    WHEN 'Absent'
+                    THEN 3
+
+                    ELSE 4
+
+                END,
+
+                worker_name ASC
+        """, (
 
             attendance_date,
 
-            attendance_time
-
-        FROM attendance
-
-        WHERE attendance_date = ?
-
-        ORDER BY
-            CASE status
-                WHEN 'Present' THEN 1
-                WHEN 'Late' THEN 2
-                WHEN 'Absent' THEN 3
-                ELSE 4
-            END,
-
-            worker_name ASC
-    """, (
-        attendance_date,
-    )).fetchall()
+        )).fetchall()
 
 
-    conn.close()
+        return jsonify([
+
+            dict(row)
+
+            for row in rows
+
+        ])
 
 
-    return jsonify([
-        dict(row)
-        for row in rows
-    ])
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -440,26 +828,34 @@ def get_date_attendance(attendance_date):
     "/attendance/month/<year>/<month>",
     methods=["GET"]
 )
-def get_month_attendance(year, month):
+def get_month_attendance(
+    year,
+    month
+):
 
     try:
 
         year = int(year)
+
         month = int(month)
 
     except ValueError:
 
         return jsonify({
+
             "error":
                 "Invalid year or month"
+
         }), 400
 
 
     if month < 1 or month > 12:
 
         return jsonify({
+
             "error":
                 "Month must be between 1 and 12"
+
         }), 400
 
 
@@ -470,39 +866,49 @@ def get_month_attendance(year, month):
 
     conn = get_db()
 
+    try:
 
-    rows = conn.execute("""
-        SELECT
+        rows = conn.execute("""
+            SELECT
 
-            id,
+                id,
 
-            worker_name,
+                worker_name,
 
-            status,
+                status,
 
-            attendance_date,
+                attendance_date,
 
-            attendance_time
+                attendance_time
 
-        FROM attendance
+            FROM attendance
 
-        WHERE attendance_date LIKE ?
+            WHERE attendance_date LIKE ?
 
-        ORDER BY
-            attendance_date ASC,
-            worker_name ASC
-    """, (
-        f"{month_prefix}%",
-    )).fetchall()
+            ORDER BY
+
+                attendance_date ASC,
+
+                worker_name ASC
+        """, (
+
+            f"{month_prefix}%",
+
+        )).fetchall()
 
 
-    conn.close()
+        return jsonify([
+
+            dict(row)
+
+            for row in rows
+
+        ])
 
 
-    return jsonify([
-        dict(row)
-        for row in rows
-    ])
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -513,26 +919,34 @@ def get_month_attendance(year, month):
     "/attendance/summary/<year>/<month>",
     methods=["GET"]
 )
-def get_month_summary(year, month):
+def get_month_summary(
+    year,
+    month
+):
 
     try:
 
         year = int(year)
+
         month = int(month)
 
     except ValueError:
 
         return jsonify({
+
             "error":
                 "Invalid year or month"
+
         }), 400
 
 
     if month < 1 or month > 12:
 
         return jsonify({
+
             "error":
                 "Month must be between 1 and 12"
+
         }), 400
 
 
@@ -543,55 +957,84 @@ def get_month_summary(year, month):
 
     conn = get_db()
 
+    try:
 
-    rows = conn.execute("""
-        SELECT
+        rows = conn.execute("""
+            SELECT
 
-            worker_name,
+                worker_name,
 
-            SUM(
-                CASE
-                    WHEN status = 'Present'
-                    THEN 1
-                    ELSE 0
-                END
-            ) AS present_days,
+                SUM(
 
-            SUM(
-                CASE
-                    WHEN status = 'Late'
-                    THEN 1
-                    ELSE 0
-                END
-            ) AS late_days,
+                    CASE
 
-            SUM(
-                CASE
-                    WHEN status = 'Absent'
-                    THEN 1
-                    ELSE 0
-                END
-            ) AS absent_days
+                        WHEN status = 'Present'
+                        THEN 1
 
-        FROM attendance
+                        ELSE 0
 
-        WHERE attendance_date LIKE ?
+                    END
 
-        GROUP BY worker_name
-
-        ORDER BY worker_name ASC
-    """, (
-        f"{month_prefix}%",
-    )).fetchall()
+                ) AS present_days,
 
 
-    conn.close()
+                SUM(
+
+                    CASE
+
+                        WHEN status = 'Late'
+                        THEN 1
+
+                        ELSE 0
+
+                    END
+
+                ) AS late_days,
 
 
-    return jsonify([
-        dict(row)
-        for row in rows
-    ])
+                SUM(
+
+                    CASE
+
+                        WHEN status = 'Absent'
+                        THEN 1
+
+                        ELSE 0
+
+                    END
+
+                ) AS absent_days
+
+
+            FROM attendance
+
+
+            WHERE attendance_date LIKE ?
+
+
+            GROUP BY worker_name
+
+
+            ORDER BY worker_name ASC
+        """, (
+
+            f"{month_prefix}%",
+
+        )).fetchall()
+
+
+        return jsonify([
+
+            dict(row)
+
+            for row in rows
+
+        ])
+
+
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -606,19 +1049,26 @@ def delete_all_attendance():
 
     conn = get_db()
 
-    conn.execute(
-        "DELETE FROM attendance"
-    )
+    try:
 
-    conn.commit()
+        conn.execute(
+            "DELETE FROM attendance"
+        )
 
-    conn.close()
+        conn.commit()
 
 
-    return jsonify({
-        "message":
-            "All attendance records deleted"
-    })
+        return jsonify({
+
+            "message":
+                "All attendance records deleted"
+
+        })
+
+
+    finally:
+
+        conn.close()
 
 
 # =====================================================
@@ -627,21 +1077,76 @@ def delete_all_attendance():
 
 if __name__ == "__main__":
 
+    # -------------------------------------------------
+    # Initialize database
+    # -------------------------------------------------
+
     init_db()
 
 
-    print("")
-    print("======================================")
-    print(" Worker Attendance Backend")
-    print("======================================")
-    print("")
-    print("Server running at:")
-    print("http://127.0.0.1:5000")
-    print("")
-    print("Timezone: Asia/Karachi 🇵🇰")
-    print(f"Database: {DATABASE}")
+    # -------------------------------------------------
+    # Rename old Moiz records
+    # -------------------------------------------------
+
+    rename_moiz_to_zaman()
+
+
+    # -------------------------------------------------
+    # SERVER INFORMATION
+    # -------------------------------------------------
+
     print("")
 
+    print(
+        "======================================"
+    )
+
+    print(
+        " Worker Attendance Backend"
+    )
+
+    print(
+        "======================================"
+    )
+
+    print("")
+
+    print(
+        "Server running at:"
+    )
+
+    print(
+        "http://127.0.0.1:5000"
+    )
+
+    print("")
+
+    print(
+        "Timezone: Asia/Karachi 🇵🇰"
+    )
+
+    print(
+        f"Database: {DATABASE}"
+    )
+
+    print("")
+
+    print(
+        "Workers:"
+    )
+
+    for worker in WORKERS:
+
+        print(
+            f" - {worker}"
+        )
+
+    print("")
+
+
+    # -------------------------------------------------
+    # START FLASK
+    # -------------------------------------------------
 
     app.run(
 

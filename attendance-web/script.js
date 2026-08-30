@@ -26,9 +26,10 @@ const workerNames = [
     "ali",
     "taqi",
     "alam",
-    "zaman"
+    "zaman",
+    "anas",
+    "irfan"
 ];
-
 
 // =====================================================
 // 3. GLOBAL VARIABLES
