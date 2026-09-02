@@ -8,8 +8,7 @@
 // 1. FACE API MODEL LOCATION
 // =====================================================
 
-const MODEL_URL =
-    "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js/weights";
+const MODEL_URL = "./models";
 
     // =====================================================
 // API BASE URL
@@ -501,10 +500,67 @@ function convertDatabaseTime(timeString) {
     );
 }
 
-
 // =====================================================
 // 12. CLOSE ATTENDANCE
 // =====================================================
+
+async function saveAbsent(name, retrying = false) {
+
+    try {
+
+        const response = await fetch(
+            `${API_URL}/attendance`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    worker_name: name,
+                    status: "Absent"
+                })
+            }
+        );
+
+        const result = await response.json();
+
+        attendanceRecords[name] = {
+            status: "Absent",
+            time: "-"
+        };
+
+        console.log(
+            `${name} marked Absent in database ✅`,
+            result
+        );
+
+    } catch (error) {
+
+        console.error(
+            `Could not save Absent for ${name} ❌`,
+            error
+        );
+
+        // Automatically retry once before giving up.
+
+        if (!retrying) {
+
+            console.log(
+                `Retrying ${name}...`
+            );
+
+            await saveAbsent(name, true);
+
+        } else {
+
+            attendanceRecords[name] = {
+                status: "Absent",
+                time: "-"
+            };
+        }
+    }
+}
+
 
 async function closeAttendance() {
 
@@ -514,55 +570,15 @@ async function closeAttendance() {
 
     attendanceClosed = true;
 
-    for (const name of workerNames) {
+    const pending = workerNames.filter(
+        name => !attendanceRecords[name]
+    );
 
-        if (!attendanceRecords[name]) {
-
-            try {
-
-                const response = await fetch(
-                    `${API_URL}/attendance`,
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            worker_name: name,
-                            status: "Absent"
-                        })
-                    }
-                );
-
-                const result = await response.json();
-
-                attendanceRecords[name] = {
-                    status: "Absent",
-                    time: "-"
-                };
-
-                console.log(
-                    `${name} marked Absent in database ✅`,
-                    result
-                );
-
-            } catch (error) {
-
-                console.error(
-                    `Could not save Absent for ${name} ❌`,
-                    error
-                );
-
-                // Still show as Absent locally even if
-                // the database save failed.
-
-                attendanceRecords[name] = {
-                    status: "Absent",
-                    time: "-"
-                };
-            }
-        }
-    }
+    await Promise.all(
+        pending.map(
+            name => saveAbsent(name)
+        )
+    );
 
     updateAttendanceTable();
     updateDashboard();
@@ -576,7 +592,6 @@ async function closeAttendance() {
 
     console.log("Attendance closed 🔴");
 }
-
 
 // =====================================================
 // 13. UPDATE ATTENDANCE TABLE
