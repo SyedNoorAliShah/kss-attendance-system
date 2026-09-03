@@ -153,13 +153,17 @@ async function markAttendance(name) {
 
         attendanceRecords[name] = {
             status: result.status || status,
-            time: result.time || new Date().toLocaleTimeString()
+            time: result.time || new Date().toLocaleTimeString(),
+            latitude: result.latitude ?? location.latitude,
+            longitude: result.longitude ?? location.longitude
         };
     } catch (error) {
         console.error("Backend error ❌", error);
         attendanceRecords[name] = {
             status: status,
-            time: new Date().toLocaleTimeString()
+            time: new Date().toLocaleTimeString(),
+            latitude: location.latitude,
+            longitude: location.longitude
         };
     }
 
@@ -174,7 +178,7 @@ function closeAttendance() {
 
     workerNames.forEach(name => {
         if (!attendanceRecords[name]) {
-            attendanceRecords[name] = { status: "Absent", time: "-" };
+            attendanceRecords[name] = { status: "Absent", time: "-", latitude: null, longitude: null };
         }
     });
 
@@ -197,10 +201,14 @@ function updateAttendanceTable() {
         const record = attendanceRecords[name];
         let status = "Not Marked";
         let time = "-";
+        let latitude = null;
+        let longitude = null;
 
         if (record) {
             status = record.status;
             time = record.time;
+            latitude = record.latitude ?? null;
+            longitude = record.longitude ?? null;
         }
 
         const row = document.createElement("tr");
@@ -212,6 +220,13 @@ function updateAttendanceTable() {
 
         const timeCell = document.createElement("td");
         timeCell.innerText = time;
+
+        const locationCell = document.createElement("td");
+        if (latitude != null && longitude != null) {
+            locationCell.innerHTML = `<a href="https://www.google.com/maps?q=${latitude},${longitude}" target="_blank" rel="noopener">📍 View</a>`;
+        } else {
+            locationCell.innerText = "-";
+        }
 
         if (status === "Present") {
             statusCell.style.color = "green";
@@ -227,6 +242,7 @@ function updateAttendanceTable() {
         row.appendChild(nameCell);
         row.appendChild(statusCell);
         row.appendChild(timeCell);
+        row.appendChild(locationCell);
         table.appendChild(row);
     });
 }
@@ -326,17 +342,9 @@ if (startButton) {
 }
 
 
-const cameraSection = document.querySelector(".camera-section");
-
-if (cameraSection) {
-    const closeButton = document.createElement("button");
-    closeButton.id = "closeAttendance";
-    closeButton.innerText = "Close Attendance";
-    closeButton.style.marginTop = "10px";
-    closeButton.style.padding = "10px 20px";
-    closeButton.style.cursor = "pointer";
+const closeButton = document.getElementById("closeAttendance");
+if (closeButton) {
     closeButton.addEventListener("click", closeAttendance);
-    cameraSection.querySelector(".camera-box").appendChild(closeButton);
 }
 
 
@@ -355,27 +363,39 @@ function loadHistoryByDate() {
             historyTable.innerHTML = "";
 
             if (records.length === 0) {
-                historyTable.innerHTML = "<tr><td colspan='3'>No records found for this date.</td></tr>";
+                historyTable.innerHTML = "<tr><td colspan='4'>No records found for this date.</td></tr>";
                 return;
             }
 
             records.forEach(record => {
                 const row = document.createElement("tr");
+
                 const nameCell = document.createElement("td");
                 nameCell.innerText = capitalize(record.worker_name);
+
                 const statusCell = document.createElement("td");
                 statusCell.innerText = record.status;
+
                 const timeCell = document.createElement("td");
                 timeCell.innerText = record.attendance_time;
+
+                const locationCell = document.createElement("td");
+                if (record.latitude != null && record.longitude != null) {
+                    locationCell.innerHTML = `<a href="https://www.google.com/maps?q=${record.latitude},${record.longitude}" target="_blank" rel="noopener">📍 View</a>`;
+                } else {
+                    locationCell.innerText = "-";
+                }
+
                 row.appendChild(nameCell);
                 row.appendChild(statusCell);
                 row.appendChild(timeCell);
+                row.appendChild(locationCell);
                 historyTable.appendChild(row);
             });
         })
         .catch(error => {
             console.error("Could not load history ❌", error);
-            historyTable.innerHTML = "<tr><td colspan='3'>Error loading history. Is the backend running?</td></tr>";
+            historyTable.innerHTML = "<tr><td colspan='4'>Error loading history. Is the backend running?</td></tr>";
         });
 }
 
