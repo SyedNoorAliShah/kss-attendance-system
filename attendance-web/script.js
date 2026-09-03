@@ -16,6 +16,63 @@ const MODEL_URL = "./models";
 
 const API_URL = "https://noorali61.pythonanywhere.com";
 
+// =====================================================
+// OFFICE LOCATION (for geofencing)
+// =====================================================
+
+const OFFICE_LAT = 24.946650;
+const OFFICE_LNG = 67.056869;
+const ALLOWED_RADIUS_METERS = 200; // adjust if needed
+
+// Workers who can mark attendance from anywhere (field/onsite workers)
+const FIELD_WORKERS = [
+    // add names here later, e.g. "irfan"
+];
+
+
+// Calculate distance between two GPS points (Haversine formula)
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+
+    const R = 6371000; // Earth radius in meters
+
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+}
+
+
+// Get current location as a Promise
+function getCurrentLocation() {
+
+    return new Promise((resolve, reject) => {
+
+        if (!navigator.geolocation) {
+            reject(new Error("Geolocation not supported"));
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                resolve({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                });
+            },
+            (error) => {
+                reject(error);
+            },
+            { enableHighAccuracy: true, timeout: 10000 }
+        );
+    });
+}
 
 // =====================================================
 // 2. WORKERS
@@ -320,6 +377,37 @@ async function markAttendance(name) {
 
     if (markedToday.has(name)) {
         return;
+    }
+
+    // Skip location check for field/onsite workers
+    if (!FIELD_WORKERS.includes(name)) {
+
+        try {
+
+            const location = await getCurrentLocation();
+
+            const distance = getDistanceMeters(
+                location.lat, location.lng,
+                OFFICE_LAT, OFFICE_LNG
+            );
+
+            if (distance > ALLOWED_RADIUS_METERS) {
+
+                alert(
+                    `${capitalize(name)} office ke bahar hain (${Math.round(distance)}m door). Attendance mark nahi ho sakti.`
+                );
+
+                return;
+            }
+
+        } catch (error) {
+
+            alert(
+                "Location access chahiye attendance mark karne ke liye. Please permission allow karein."
+            );
+
+            return;
+        }
     }
 
 
