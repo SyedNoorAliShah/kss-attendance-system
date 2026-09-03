@@ -26,7 +26,9 @@ WORKERS = [
     "ali",
     "taqi",
     "alam",
-    "zaman"
+    "zaman",
+    "anas",
+    "irfan"
 ]
 
 
