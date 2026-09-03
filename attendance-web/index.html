@@ -301,6 +301,17 @@
     <script src="script.js"></script>
 
 
+    <!-- =========================================
+         SERVICE WORKER (for PWA install support)
+    ========================================== -->
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./service-worker.js');
+        }
+    </script>
+
+
 </body>
 
 </html>
