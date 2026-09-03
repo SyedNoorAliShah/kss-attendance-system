@@ -74,6 +74,72 @@ function getCurrentLocation() {
     });
 }
 
+// Reverse-geocode a lat/lng into a readable area name using
+// OpenStreetMap's free Nominatim API. Returns null on any failure
+// (no API key, but keep this to ~1 request/sec and don't spam it).
+async function reverseGeocode(latitude, longitude) {
+
+    try {
+
+        const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=16&addressdetails=1`,
+            {
+                headers: {
+                    "Accept-Language": "en"
+                }
+            }
+        );
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const data = await response.json();
+        const address = data.address || {};
+
+        // Prefer smaller, more specific areas first.
+        const area =
+            address.suburb ||
+            address.neighbourhood ||
+            address.residential ||
+            address.town ||
+            address.city_district ||
+            address.city ||
+            address.county ||
+            null;
+
+        return area;
+
+    } catch (error) {
+
+        console.warn("Reverse geocoding failed:", error);
+        return null;
+    }
+}
+
+
+// Build a Google Maps link + distance + area name for a table cell.
+// Returns an HTML string (used with innerHTML on the Location <td> only).
+function renderLocationCellHTML(latitude, longitude, distanceMeters, areaName) {
+
+    if (latitude == null || longitude == null) {
+        return "—";
+    }
+
+    const mapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    const distanceText =
+        distanceMeters != null
+            ? `${Math.round(distanceMeters)}m`
+            : "";
+
+    const areaText =
+        areaName
+            ? `<br><span style="font-size:0.85em;color:#555;">${areaName}</span>`
+            : "";
+
+    return `${distanceText} <a href="${mapsLink}" target="_blank" rel="noopener">📍 View</a>${areaText}`;
+}
+
 // =====================================================
 // 2. WORKERS
 // =====================================================
@@ -379,31 +445,48 @@ async function markAttendance(name) {
         return;
     }
 
-    // Skip location check for field/onsite workers
+    // Try to get location for everyone (used for the dashboard's
+    // Location column), but only ENFORCE the geofence for workers
+    // who are not in FIELD_WORKERS.
+
+    let location = null;
+    let distance = null;
+    let areaName = null;
+
+    try {
+
+        location = await getCurrentLocation();
+
+        distance = getDistanceMeters(
+            location.lat, location.lng,
+            OFFICE_LAT, OFFICE_LNG
+        );
+
+        areaName = await reverseGeocode(location.lat, location.lng);
+
+    } catch (error) {
+
+        location = null;
+        distance = null;
+        areaName = null;
+    }
+
+
     if (!FIELD_WORKERS.includes(name)) {
 
-        try {
-
-            const location = await getCurrentLocation();
-
-            const distance = getDistanceMeters(
-                location.lat, location.lng,
-                OFFICE_LAT, OFFICE_LNG
-            );
-
-            if (distance > ALLOWED_RADIUS_METERS) {
-
-                alert(
-                    `${capitalize(name)} office ke bahar hain (${Math.round(distance)}m door). Attendance mark nahi ho sakti.`
-                );
-
-                return;
-            }
-
-        } catch (error) {
+        if (!location) {
 
             alert(
                 "Location access chahiye attendance mark karne ke liye. Please permission allow karein."
+            );
+
+            return;
+        }
+
+        if (distance > ALLOWED_RADIUS_METERS) {
+
+            alert(
+                `${capitalize(name)} office ke bahar hain (${Math.round(distance)}m door). Attendance mark nahi ho sakti.`
             );
 
             return;
@@ -430,7 +513,10 @@ async function markAttendance(name) {
 
                     body: JSON.stringify({
                         worker_name: name,
-                        status: status
+                        status: status,
+                        latitude: location ? location.lat : null,
+                        longitude: location ? location.lng : null,
+                        area_name: areaName
                     })
                 }
             );
@@ -454,47 +540,46 @@ async function markAttendance(name) {
         );
 
 
-        // Backend may tell us it was already saved
+        // Backend may tell us it was already saved,
+        // or return the freshly saved record either way —
+        // in both cases we store whatever location data
+        // it gives back (falling back to what we captured
+        // locally if the backend doesn't send it yet).
 
-        if (
-            result.message &&
-            result.message.includes(
-                "already marked"
-            )
-        ) {
+        markedToday.add(name);
 
-            markedToday.add(name);
+        attendanceRecords[name] = {
 
-            attendanceRecords[name] = {
+            status:
+                result.status || status,
 
-                status:
-                    result.status || status,
+            time:
+                result.time
+                    ? convertDatabaseTime(
+                        result.time
+                    )
+                    : formatTime(),
 
-                time:
-                    result.time
-                        ? convertDatabaseTime(
-                            result.time
-                        )
-                        : formatTime()
-            };
+            latitude:
+                result.latitude !== undefined
+                    ? result.latitude
+                    : (location ? location.lat : null),
 
-        } else {
+            longitude:
+                result.longitude !== undefined
+                    ? result.longitude
+                    : (location ? location.lng : null),
 
-            markedToday.add(name);
+            distance:
+                result.distance_meters !== undefined
+                    ? result.distance_meters
+                    : distance,
 
-            attendanceRecords[name] = {
-
-                status:
-                    result.status || status,
-
-                time:
-                    result.time
-                        ? convertDatabaseTime(
-                            result.time
-                        )
-                        : formatTime()
-            };
-        }
+            areaName:
+                result.area_name !== undefined
+                    ? result.area_name
+                    : areaName
+        };
 
 
         console.log(
@@ -614,7 +699,11 @@ async function saveAbsent(name, retrying = false) {
 
         attendanceRecords[name] = {
             status: "Absent",
-            time: "-"
+            time: "-",
+            latitude: null,
+            longitude: null,
+            distance: null,
+            areaName: null
         };
 
         console.log(
@@ -643,7 +732,11 @@ async function saveAbsent(name, retrying = false) {
 
             attendanceRecords[name] = {
                 status: "Absent",
-                time: "-"
+                time: "-",
+                latitude: null,
+                longitude: null,
+                distance: null,
+                areaName: null
             };
         }
     }
@@ -719,6 +812,11 @@ function updateAttendanceTable() {
             let time =
                 "-";
 
+            let latitude = null;
+            let longitude = null;
+            let distance = null;
+            let areaName = null;
+
 
             if (record) {
 
@@ -727,6 +825,11 @@ function updateAttendanceTable() {
 
                 time =
                     record.time;
+
+                latitude = record.latitude ?? null;
+                longitude = record.longitude ?? null;
+                distance = record.distance ?? null;
+                areaName = record.areaName ?? null;
             }
 
 
@@ -764,6 +867,17 @@ function updateAttendanceTable() {
 
             timeCell.innerText =
                 time;
+
+
+            const locationCell =
+                document.createElement(
+                    "td"
+                );
+
+            locationCell.innerHTML =
+                renderLocationCellHTML(
+                    latitude, longitude, distance, areaName
+                );
 
 
             // Present
@@ -818,6 +932,10 @@ function updateAttendanceTable() {
 
             row.appendChild(
                 timeCell
+            );
+
+            row.appendChild(
+                locationCell
             );
 
 
@@ -1176,7 +1294,19 @@ async function loadTodayAttendance() {
                         time:
                             convertDatabaseTime(
                                 record.attendance_time
-                            )
+                            ),
+
+                        latitude:
+                            record.latitude ?? null,
+
+                        longitude:
+                            record.longitude ?? null,
+
+                        distance:
+                            record.distance_meters ?? null,
+
+                        areaName:
+                            record.area_name ?? null
                     };
 
 
@@ -1296,7 +1426,7 @@ function loadHistoryByDate() {
                 ) {
 
                     historyTable.innerHTML =
-                        "<tr><td colspan='3'>No records found for this date.</td></tr>";
+                        "<tr><td colspan='4'>No records found for this date.</td></tr>";
 
                     return;
                 }
@@ -1329,6 +1459,12 @@ function loadHistoryByDate() {
                             );
 
 
+                        const locationCell =
+                            document.createElement(
+                                "td"
+                            );
+
+
                         nameCell.innerText =
                             capitalize(
                                 record.worker_name
@@ -1342,6 +1478,15 @@ function loadHistoryByDate() {
                         timeCell.innerText =
                             convertDatabaseTime(
                                 record.attendance_time
+                            );
+
+
+                        locationCell.innerHTML =
+                            renderLocationCellHTML(
+                                record.latitude ?? null,
+                                record.longitude ?? null,
+                                record.distance_meters ?? null,
+                                record.area_name ?? null
                             );
 
 
@@ -1398,6 +1543,10 @@ function loadHistoryByDate() {
                             timeCell
                         );
 
+                        row.appendChild(
+                            locationCell
+                        );
+
 
                         historyTable.appendChild(
                             row
@@ -1417,7 +1566,7 @@ function loadHistoryByDate() {
 
 
                 historyTable.innerHTML =
-                    "<tr><td colspan='3'>Error loading history. Is the backend running?</td></tr>";
+                    "<tr><td colspan='4'>Error loading history. Is the backend running?</td></tr>";
             }
         );
 }
