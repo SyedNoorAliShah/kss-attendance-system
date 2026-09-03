@@ -77,6 +77,10 @@ async function registerWorkers() {
 }
 
 
+// =====================================================
+// START CAMERA (lower resolution = faster processing)
+// =====================================================
+
 async function startCamera() {
     const video = document.getElementById("camera");
     if (!video) {
@@ -85,7 +89,12 @@ async function startCamera() {
     }
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                width: { ideal: 320 },
+                height: { ideal: 240 }
+            }
+        });
         video.srcObject = stream;
         document.getElementById("cameraMessage").innerText = "Camera is ON";
         console.log("Camera started successfully ✅");
@@ -274,6 +283,10 @@ function updateDashboard() {
 }
 
 
+// =====================================================
+// FACE RECOGNITION (checks every 3.5 seconds now, smoother)
+// =====================================================
+
 function recognizeLoop() {
     if (recognitionRunning) return;
     recognitionRunning = true;
@@ -303,7 +316,7 @@ function recognizeLoop() {
         } catch (error) {
             console.error("Face recognition error ❌", error);
         }
-    }, 2000);
+    }, 3500);
 }
 
 
